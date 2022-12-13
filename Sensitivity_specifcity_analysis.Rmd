@@ -1,0 +1,1146 @@
+---
+title: "Sensitivity and specificty analysis"
+author: "Berhe"
+date: '2022-03-16'
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r setup,include=FALSE,  results='hide', message=FALSE, warning=FALSE}
+## hide all code chunks in the output, but show errors
+knitr::opts_chunk$set(echo = FALSE,       # hide all code chunks in output
+                      error = TRUE,       # show errors if they appear, but don't stop
+                      fig.width = 6*1.25, # Figure width
+                      fig.height = 6,      # Figure height
+                      warning = FALSE,
+                      message = FALSE
+                     )
+## set default NA to - in output, define figure width/height
+options(knitr.kable.NA = "-")
+
+## Installing required packages for this template
+required_packages <- c("knitr",       # create output docs
+                       "here",        # find your files
+                       "janitor",
+                       "dplyr",       # clean/shape data
+                       "forcats",     # clean/shape data
+                       "stringr",     # clean text
+                       "rio",         # read in data
+                       "ggplot2",     # create plots and charts
+                       "patchwork",   # combine plots in one
+                       "linelist",    # Functions for cleaning/standardising data/dates
+                       "matchmaker",  # dictionary-based standardization of variables
+                       "incidence",   # create epicurves
+                       "aweek",       # define epi weeks
+                       "epitrix",     # epi helpers and tricks
+                       "sf",          # encode spatial vector data
+                       "ggspatial",   # plot maps
+                       "mondate",
+                       "xts",         # moving \naverages
+                       "zoo",         # moving \naverages
+                       "classInt",    # specifying breaks for maps
+                       "excel.link",  # opening password protected files
+                       "askpass",     # opening password protected files
+                       "tsibble",     # time series data
+                       "slider",      # time series data
+                       "tidyr",       # long/long adjustments to data
+                       "gt", 
+                       "gtsummary",# make nice tables
+                       "data.table",   # for taking last and first values from data frames
+                       "patchwork",   # combining plots together
+                       "TTR",        # calculate the moving average
+                       "anytime",     # POSIX Date converter
+                       "matrixStats", # standard deviation matrix calculator 
+                       "tmaptools",   # for getting geocoordinates (lon/lat) based on place names
+                       "ISOweek",
+                       "growthrates",
+                       "glue",
+                       "ggplot2",
+                       "scales",
+                       "gridExtra",
+                       "ggpubr",
+                       "grid",
+                       "sandwich",
+                       "rgeos",
+                       "countrycode",
+                       "officer",
+                       "gt",
+                       "webshot",
+                       "english",
+                       "ggthemes",
+                       "purrr",
+                       "readxl",
+                       "readr",
+                       "broom",
+                       "tidyverse",
+                       "lmtest",
+                       "parameters",
+                       "see")
+for (pkg in required_packages) {
+  # install packages if not already present
+  if (!pkg %in% rownames(installed.packages())) {
+    install.packages(pkg)
+  }
+  
+  # load packages to this current session 
+  library(pkg, character.only = TRUE)
+}
+
+
+# Set the left and right censoring for date of consultation. 
+# The right-censoring create also the week value and the folders where to save the outputs
+
+date_min_report <-  as.Date("2020-01-22")
+date_max_report <- as.Date("2021-12-31")
+
+
+palette_Reds4U <- c('#fcae91', '#fb6a4a','#de2d26', '#a50f15', '#969696')
+
+x_date_labels <- "1 months"
+x_date_labels_faceted <- "2 months"
+
+```
+
+
+```{r import functions}
+source(here::here("functions/read_msf_data.R"))
+source(here::here("functions/aaa_get_latest_data.R"))
+source(here::here("functions/aaa_file_name_helpers.R"))
+source(here::here("functions/current_data.R"))
+source(here::here("functions/utils_modelling.R"))
+source(here::here("functions/utils_vis.R"))
+source(here::here("functions/setup.R"))
+```
+
+
+```{r import data set, warning = FALSE, message = FALSE,show_col_types=FALSE}
+## Read in data from work sheet 
+#dta_linelist <- rio::import(current_raw_covid_MSF,
+                            #which="Sheet1") 
+#dta_linelist<-read_excel("Data/msf_covid19_linelist_global_2022-03-02.xlsx")
+
+#df_labels_comcond <- read_csv(here("./Data/labels_comcond.csv")) 
+#dta_dictionary<-read_excel(here("./data.dictionary.xlsx"))
+
+#options(java.parameters = "-Xmx1000m")
+#dta_linelist<-read.xlsx(here("./Data/msf_covid19_linelist_global_2022-03-02.xlsx"))
+
+dta_linelist <- read_csv("C:/Users/berhe.tesfay/MSF/GRP-EPI-COVID-19 - OCA covid19 research initiative/code/Covid Regression/Data/msf_covid19_linelist_global_2022-03-05.csv")
+
+```
+
+
+```{r clean data}
+## add Continent of the countries according to world bank region
+dta_linelist<-dta_linelist %>% 
+  dplyr::mutate(Continent=case_when(country%in%c("AFG","BGD","IND","PAK","MMR") ~"South Asia",
+    country%in%c("ETH","CAF", "BFA","CMR","TCD","COD","GRC","GIN","KEN","MWI","MLI",
+                        "NER","NGA","SDN","SSD","SOM","TZA","UGA")    ~    "Sub Saharan Africa",
+    country%in%c("COL","HTI","HND","MEX","PER","VEN","BRA")  ~ "Latin America & Caribbean",
+    country%in%c("GRC","KGZ","TJK","UKR","BEL","BLR")        ~"Europe & Central Asia",
+    country%in%c("IRQ","JOR","LBN","SYR","TUN","YEM")        ~"Middle East & North Africa",
+         TRUE~country)) 
+dta_linelist<-dta_linelist %>% 
+  mutate(Country=case_when(country=="AFG"~"Afghanistan",
+                           country=="BGD"~"Bangladesh",
+                           country=="IND" ~"India",
+                           country=="PAK"~"Pakistan",
+                           country=="ETH"~"Ethiopia",
+                           country=="CAF"~"Central Africa",
+                           country=="BFA"~"Burkinafaso",
+                           country=="CMR"~"Cameron",
+                           country=="TCD"~"Chad",
+                           country=="COD"~"DRC",
+                           country=="GRC"~"Greece",
+                           country=="GIN"~"Guniea",
+                           country=="KEN"~"Kenya",
+                           country=="MWI"~"Malawi",
+                           country=="MLI"~"Mali",
+                           country=="NER"~"Niger",
+                           country=="NGA"~"Nigeria",
+                           country=="SDN"~"Sudan",
+                           country=="SSD"~"South Sudan",
+                           country=="SOM"~"Somalia",
+                           country=="TZA"~"Tanzania",
+                           country=="UGA"~"Uganda",
+                           country=="COL"~"Colombia",
+                           country=="HTI"~"Hiti",
+                           country=="HND"~"Honduras",
+                           country=="MEX"~"Mexico",
+                           country=="PER"~"Peru",
+                           country=="VEN"~"Venezuela",
+                           country=="BRA"~"Brazil",
+                           country=="KGZ"~"Kazagistan",
+                           country=="TJK"~"Tajikistan",
+                           country=="UKR"~"Ukraine",
+                           country=="BEL"~"Belgium",
+                           country=="BLR"~"Belarus",
+                           country=="IRQ"~"Iraq",
+                           country=="JOR"~"Jordan",
+                           country=="LBN"~"Lebanon",
+                           country=="SYR"~"Syria",
+                           country=="TUN"~"Tunisia",
+                           country=="YEM"~"Yemen",
+                           country=="MMR"~"Myanmar"
+                           ))
+  
+```
+
+
+```{r data cleaning and regrouping}
+data_linelist<-dta_linelist %>% 
+  filter(date_event<=date_max_report) %>% 
+  filter(ind_MSF_covid_status==c('Confirmed','Not a case'))
+## filter only confirmed cases 
+```
+
+
+```{r further data clean }
+## categorize cata gorical data Age 
+data_linelist<-data_linelist %>% 
+mutate(`Age Category`=case_when(
+# criteria # new value
+age_in_years<15 ~"0-14 yrs",
+age_in_years>=15 & age_in_years<35 ~"15-34 yrs",
+age_in_years>=35 & age_in_years<50 ~"35-49 yrs",
+age_in_years>=50 & age_in_years<65 ~"50-64 yrs",
+age_in_years>=65 & age_in_years<80 ~"65-79 yrs",
+age_in_years>=80 ~ "80+ yrs",
+is.na(age_in_years) ~NA_character_)) %>%
+mutate(`Age Category`=factor(`Age Category`,
+                             levels=c("0-14 yrs",
+                                      "15-34 yrs",
+                                      "35-49 yrs",
+                                       "50-64 yrs",
+                                       "65-79 yrs",
+                                       "80+ yrs",
+                                       NA_character_))) %>% 
+## age group for Continent wise analysis based on MSF Analysis plan
+mutate(`Age group`=case_when(
+# criteria # new vlue
+age_in_years<2 ~"0-1 yrs",
+age_in_years>=2 & age_in_years <5  ~"2-4 yrs",
+age_in_years>=5 & age_in_years <15 ~"5-14 yrs",
+age_in_years>=15 & age_in_years<30 ~"15-29 yrs",
+age_in_years>=30 & age_in_years<40 ~"30-39 yrs",
+age_in_years>=40 & age_in_years<50 ~"40-49 yrs",
+age_in_years>=50 & age_in_years<60 ~"50-59 yrs",
+age_in_years>=60 & age_in_years<70 ~"60-69 yrs",
+age_in_years>=70 & age_in_years<80 ~"70-79 yrs",
+age_in_years>=80 ~ "80+ yrs",
+is.na(age_in_years) ~ NA_character_)) %>%
+mutate(`Age group`=factor(`Age group`,
+                             levels=c("0-1 yrs",
+                                      "2-4 yrs",
+                                      "5-14 yrs",
+                                      "15-29 yrs",
+                                      "30-39 yrs",
+                                      "40-49 yrs",
+                                      "50-59 yrs",
+                                      "60-69 yrs",
+                                      "70-79 yrs",
+                                      "80+ yrs", 
+                                      NA_character_))) %>% 
+## regroup the age group accoding to the data in mainland china (Literature)
+  mutate(`Age china`=case_when(
+# criteria # new vlue
+age_in_years<10 ~"0-9 yrs",
+age_in_years>=10 & age_in_years <20  ~"10-19 yrs",
+age_in_years>=20 & age_in_years <30 ~"20-29 yrs",
+age_in_years>=30 & age_in_years<40 ~"30-39 yrs",
+age_in_years>=40 & age_in_years<49 ~"40-49 yrs",
+age_in_years>=50 & age_in_years<59 ~"50-59 yrs",
+age_in_years>=60 & age_in_years<69 ~"60-69 yrs",
+age_in_years>=70 & age_in_years<79 ~"70-79 yrs",
+age_in_years>=80 ~ "80+ yrs",
+is.na(age_in_years) ~ NA_character_)) %>%
+mutate(`Age group`=factor(`Age group`,
+                             levels=c("0-9 yrs",
+                                      "10-19 yrs",
+                                      "20-29 yrs",
+                                      "30-39 yrs",
+                                      "40-49 yrs",
+                                      "50-59 yrs",
+                                      "60-69 yrs",
+                                      "70-79 yrs",
+                                      "80+ yrs", 
+                                      NA_character_))) %>% 
+  
+## Mutate age based on the Covid cases in the UK (Litrature)  
+mutate(`Age 7gp`=case_when(
+# criteria # new vlue
+age_in_years<18 ~"0-17 yrs",
+age_in_years>=18 & age_in_years<30 ~"18-29 yrs",
+age_in_years>=30 & age_in_years<40 ~"30-39 yrs",
+age_in_years>=40 & age_in_years<49 ~"40-49 yrs",
+age_in_years>=50 & age_in_years<59 ~"50-59 yrs",
+age_in_years>=60 & age_in_years<69 ~"60-69 yrs",
+age_in_years>=70 & age_in_years<79 ~"70-79 yrs",
+age_in_years>=80 ~ "80+ yrs",
+is.na(age_in_years) ~ NA_character_)) %>%
+mutate(`Age 7gp`=factor(`Age 7gp`,
+                             levels=c("0-17 yrs",
+                                      "18-29 yrs",
+                                      "30-39 yrs",
+                                      "40-49 yrs",
+                                      "50-59 yrs",
+                                      "60-69 yrs",
+                                      "70-79 yrs",
+                                      "80+ yrs", 
+                                      NA_character_))) %>% 
+## sex data clean
+mutate(sex = factor(patinfo_sex, levels = c('F', 'M'), 
+                    labels = c('Female', 'Male')))
+
+```
+
+
+```{r clean hospital treatment data}
+data_linelist<-data_linelist %>% 
+## categorize the duration of illness for confirmed cases 
+mutate(`Length of stay in Hospital`=
+          case_when(
+    # criteria                                   # new value if TRUE
+    MSF_length_stay< 3                                   ~ "<3 days",
+    MSF_length_stay >= 3 & MSF_length_stay < 6           ~ "3-6 days",
+    MSF_length_stay >= 7 & MSF_length_stay < 13          ~ "7-13 days",
+    MSF_length_stay>=14                                  ~"14+ days",
+    is.na(MSF_length_stay)                               ~ NA_character_,
+    )) %>% 
+  
+  mutate(`Length of stay in Hospital`=factor(`Length of stay in Hospital`,
+                                             levels = c("<3 days",
+                                                        "3-6 days",
+                                                        "7-13 days",
+                                                        "14+ days",
+                                                         NA_character_))) %>% 
+#### Age category for pregnanct analysis
+mutate(`Age preg`=case_when(
+## criteria # new value
+age_in_years<19 ~"0-19 years",
+age_in_years>=20 & age_in_years <30  ~"20-29 years",
+age_in_years>=30 & age_in_years <40 ~"30-39 years",
+age_in_years>=40 & age_in_years <49 ~"40-49 years",
+age_in_years>=50 ~ "80+ yrs",
+is.na(MSF_length_stay) ~ NA_character_)) %>%
+mutate(`Age preg`=factor(`Age preg`,
+                             levels=c("0-19 years",
+                                      "20-29 years",
+                                      "30-39 years",
+                                      "40-49 years",
+                                      ">=50 years", 
+                                      NA_character_))) %>% 
+
+## categorize the delay between admission and date of consultation
+  mutate(`Delay between onset and consultation` = as.numeric(MSF_date_consultation - patcourse_dateonset)) %>% 
+  mutate(`Delay between onset and consultation` = case_when(
+    # criteria                                                                        # new value if TRUE
+   `Delay between onset and consultation` <3                                                ~ "<3 days",
+   `Delay between onset and consultation` >=3 & `Delay between onset and consultation` < 6  ~ "3-6 days",
+   `Delay between onset and consultation` >=7 & `Delay between onset and consultation` < 13 ~ "7-13 days",
+   `Delay between onset and consultation`>=14                                                ~"14+ days",
+   is.na(`Delay between onset and consultation`)                                             ~ NA_character_
+    )) %>%
+     mutate(`Delay between onset and consultation`=factor(`Delay between onset and consultation`,
+                                             levels = c("<3 days",
+                                                        "3-6 days",
+                                                        "7-13 days",
+                                                        "14+ days",
+                                                         NA_character_))) %>% 
+  ## Mutate MSF admission
+  mutate(Admitted=merge_admit,
+         `Oxygen therapy`=merge_oxygen,
+         `Ventilation therapy`=merge_vent,
+         `ICU admitted`=merge_icu,
+          Outcome=ind_outcome_patcourse_status) %>% 
+  
+   mutate(Admitted=factor(Admitted,
+                    levels = c("Yes",
+                               "No",
+                               "Unknown",
+                               NA_character_))) %>% 
+    mutate(`Oxygen therapy`=factor(`Oxygen therapy`,
+                    levels = c("No at any time",
+                               "No at admission then not reported",
+                               "Yes",
+                               "Not reported",
+                               NA_character_))) %>% 
+    mutate(`Ventilation therapy`=factor(`Ventilation therapy`,
+                    levels = c("No at any time",
+                               "No at admission then not reported",
+                               "Yes",
+                               "Not reported",
+                                NA_character_))) 
+```
+
+
+```{r clean signs and symptoms}
+
+data_linelist<-data_linelist %>% 
+## Mutate MSF symptoms
+ mutate(  Fever              = MSF_symptom_fever, 
+         `Abdominal pain`    = MSF_symptom_abdominal_pain,
+          Aches              = MSF_symptom_aches,
+          Ansomia            = MSF_symptom_anosmia,
+          Breathlessness     = MSF_symptom_breathlessness,
+         `Chest pain`        = MSF_symptom_chest_pain, 
+          Chills             = MSF_symptom_chills,
+          Cough              = MSF_symptom_cough,
+         `Cutaneous signs`   = MSF_symptom_cutaneous_signs, 
+         `Diarrhoea`         = MSF_symptom_diarrhoea,
+         `Headache`          = MSF_symptom_headache,
+         `Loss of taste`     = MSF_symptom_loss_taste,
+         `Nasal congestion`  = MSF_symptom_nose_congestion,
+         `Runny nose`        = MSF_symptom_runny_nose, 
+         `Sore throat`      = MSF_symptom_sorethoat,
+          Vomiting           = MSF_symptom_vomiting,
+          Tiredness          = MSF_symptom_tiredness,
+          `Can spit`         = MSF_can_spit
+        ) %>% 
+
+## Recode the levels to for the regression to keep them in order 
+## Discussion meed if the Unknown values for the signs and symptoms should be labels as NAs or be treated as "Unknown"  
+mutate(Fever=factor(Fever,
+                    levels = c("Yes",
+                               "No",
+                               "Unknown",
+                                 NA_character_))) %>% 
+mutate(`Abdominal pain`=factor(`Abdominal pain`,
+                    levels = c("Yes",
+                               "No",
+                               "Unknown",
+                               NA_character_))) %>%
+  
+mutate(Aches=factor(Aches,
+                    levels = c("Yes",
+                               "No",
+                               "Unknown",
+                               NA_character_))) %>%
+mutate(Ansomia=factor(Ansomia,
+                    levels = c("No",
+                               "Yes",
+                               "Unknown",
+                               NA_character_))) %>% 
+mutate(Breathlessness=factor(Breathlessness,
+                    levels = c("Yes",
+                               "No",
+                               "Unknown",
+                               NA_character_))) %>% 
+mutate(`Chest pain`=factor(`Chest pain`,
+                    levels = c("Yes",
+                               "No",
+                               "Unknown",
+                               NA_character_))) %>% 
+mutate(Chills=factor(Chills,
+                    levels = c("No",
+                               "Yes",
+                               "Unknown",
+                               NA_character_))) %>% 
+mutate(Cough=factor(Cough,
+                    levels = c("Yes",
+                               "No",
+                               "Unknown",
+                               NA_character_))) %>% 
+mutate(`Cutaneous signs`=factor(`Cutaneous signs`,
+                    levels = c("Yes",
+                               "No",
+                               "Unknown",
+                               NA_character_))) %>% 
+mutate(Diarrhoea=factor(Diarrhoea,
+                    levels = c("No",
+                               "Yes",
+                               "Unknown",
+                               NA_character_))) %>% 
+mutate(Headache=factor(Headache,
+                    levels = c("Yes",
+                               "No",
+                               "Unknown",
+                               NA_character_))) %>% 
+mutate(`Loss of taste`=factor(`Loss of taste`,
+                    levels = c("No",
+                               "Yes",
+                               "Unknown",
+                               NA_character_))) %>% 
+mutate(`Nasal congestion`=factor(`Nasal congestion`,
+                    levels = c("Yes",
+                               "No",
+                               "Unknown",
+                               NA_character_))) %>% 
+                               
+mutate(`Runny nose`=factor(`Runny nose`,
+                    levels = c("No",
+                               "Yes",
+                               "Unknown"))) %>% 
+mutate(Vomiting=factor(Vomiting,
+                    levels = c("Yes",
+                               "No",
+                               "Unknown",
+                               NA_character_))) %>% 
+
+  mutate(Tiredness=factor(Tiredness,
+                    levels = c("No",
+                               "Yes",
+                               "Unknown"))) %>% 
+  
+  mutate(`Can spit`=factor(`Can spit`,
+                    levels = c("Yes",
+                               "No",
+                               "Unknown",
+                                NA_character_))) %>% 
+  mutate(`Sore throat`=factor(`Sore throat`,
+                    levels = c("Yes",
+                               "No",
+                               "Unknown",
+                                NA_character_)))
+
+```
+
+
+```{r data clean co-morbidities}
+data_linelist<-data_linelist %>% 
+## mutate Co morbid conditions
+  mutate(`Cardiac diseases`            =Comcond_cardi,
+           Hypertension                =MSF_hypertension,
+          `Liver diseases`             =Comcond_liver,
+          `Renal diseases`             =Comcond_renal,
+           Diabetes                     =Comcond_diabetes,
+          `Neurological diseases`      =Comcond_neuro,
+           Malignancy                  =Comcond_malig,
+           Malaria                     =MSF_malaria,
+           HIV                         =MSF_hiv_status,
+           `Other immune deficiency diseases`   =Comcond_immuno,
+           Tuberculosis                         =MSF_tb_active,
+           `Other chronic lung diseases`        =Comcond_lung,
+            Measles                             =MSF_measles,
+            Pregnancy=Comcond_preg) %>% 
+  mutate(`Cardiac diseases`=factor(`Cardiac diseases`,
+                    levels = c("No",
+                               "Yes",
+                               "Unknown",
+                               NA_character_))) %>% 
+  mutate(Hypertension=factor(Hypertension,
+                    levels = c("No",
+                               "Yes",
+                               "Unknown",
+                               NA_character_))) %>% 
+  mutate(`Liver diseases`=factor(`Liver diseases`,
+                    levels = c("No",
+                               "Yes",
+                               "Unknown",
+                               NA_character_))) %>% 
+  mutate(`Renal diseases`=factor(`Renal diseases`,
+                    levels = c("No",
+                               "Yes",
+                               "Unknown",
+                               NA_character_))) %>% 
+  mutate(`Neurological diseases`=factor(`Neurological diseases`,
+                    levels = c("No",
+                               "Yes",
+                               "Unknown",
+                               NA_character_))) %>% 
+  mutate(Diabetes=factor(Diabetes,
+                    levels = c("No",
+                               "Yes",
+                               "Unknown",
+                                NA_character_))) %>% 
+  
+  mutate(Malignancy=factor(Malignancy,
+                    levels = c("No",
+                               "Yes",
+                               "Unknown",
+                               NA_character_))) %>% 
+  mutate(Malaria=factor(Malaria,
+                    levels = c("Negative",
+                               "Inconclusive",
+                               "Positive",
+                               "Not done",
+                               NA_character_))) %>% 
+  mutate(HIV=factor(HIV,
+                    levels = c("Negative",
+                               "Positive (no ARV)",
+                               "Positive (on ARV)",
+                               "Positive (unknown)",
+                               "Unknown",
+                               NA_character_))) %>% 
+  mutate(Measles=factor(Measles,
+                    levels = c("No",
+                               "Yes",
+                               "Unknown",
+                               NA_character_))) %>% 
+   mutate(Tuberculosis=factor(Tuberculosis,
+                    levels = c("No",
+                               "Yes (currently on treatment)",
+                               "Yes (currently no treatment)",
+                               "Yes (unknown)",
+                               "Unknown",
+                               NA_character_))) %>% 
+  mutate(Pregnancy=factor(Pregnancy,
+                    levels = c("No",
+                               "Yes",
+                               "Unknown",
+                               NA_character_))) %>% 
+  mutate(`Other chronic lung diseases`=factor(`Other chronic lung diseases`,
+                    levels = c("No",
+                               "Yes",
+                               "Unknown",
+                               NA_character_))) %>%
+  mutate(`Other immune deficiency diseases`=factor(`Other immune deficiency diseases`,
+                    levels = c("No",
+                               "Yes",
+                               "Unknown",
+                               NA_character_))) 
+
+```
+
+
+```{r data clean other risk factors}
+
+data_linelist<-data_linelist %>% 
+## other risk factors 
+              # new value                    # Old value
+      mutate(Obesity=MSF_obesity,
+             Smoking                         =MSF_smoking,
+             Malnutrition                    =MSF_malnutrition,
+             `Health care worker`             =MSF_job,
+             `Travel in the past 14 days`     =expo_travel,
+            `Visited health care facility`   =expo_visit_healthcare,
+            `Visited traditional healer`      =MSF_expo_traditional_healer,
+            `Participated in mass gathering`  =MSF_expo_mass_gathering,
+            `Contact setting`=expo_case_setting_detail,
+            `Contact to case`=expo_contact_case) %>% 
+  mutate(Obesity=factor(Obesity,
+                    levels = c("Yes",
+                               "No",
+                               "Unknown",
+                               NA_character_))) %>% 
+  mutate(Smoking=factor(Smoking,
+                    levels = c("No",
+                               "Yes (current)",
+                               "Yes (former)",
+                               "Unknown",
+                               NA_character_))) %>%
+  mutate(Malnutrition=factor(Malnutrition,
+                    levels = c("Yes",
+                               "No",
+                               "Unknown",
+                                NA_character_))) %>%
+  mutate(`Travel in the past 14 days`=factor(`Travel in the past 14 days`,
+                    levels = c("No",
+                               "Yes",
+                               "Unknown",
+                               NA_character_))) %>% 
+  mutate(`Visited health care facility`=factor(`Visited health care facility`,
+                    levels = c("Yes",
+                               "No",
+                               "Unknown",
+                               NA_character_))) %>% 
+  mutate(`Visited traditional healer`=factor(`Visited traditional healer`,
+                    levels = c("Yes",
+                               "No",
+                               "Unknown",
+                               NA_character_))) %>% 
+  mutate(`Participated in mass gathering`=factor(`Participated in mass gathering`,
+                    levels = c("Yes",
+                               "No",
+                               "Unknown",
+                               NA_character_))) %>% 
+  mutate(`Contact to case`=factor(`Contact to case`,
+                    levels = c("Yes",
+                               "No",
+                               "Unknown",
+                             NA_character_))) %>% 
+ mutate(pregnancy=case_when(sex=="Male" & `ind_Comcond_preg`=="No" ~"Male",
+                           sex=="Male" & `ind_Comcond_preg`=="Yes" ~"Invalid",
+                           sex=="Male" & `ind_Comcond_preg`== ""   ~"Male",
+                           sex=="Male" & `ind_Comcond_preg`=="No" ~"Male",
+                           sex=="Femal" & `ind_Comcond_preg`=="No" ~"Not pregnant",
+                           sex=="Female" &`ind_Comcond_preg`=="Yes" ~"Pregnant",
+                           is.na(sex)~NA_character_,
+                           sex=="Female" & is.na(`ind_Comcond_preg`) ~NA_character_,
+                           TRUE ~ `ind_Comcond_preg`
+                          ))%>%
+  ## Mutate the severity in to Mild, Severe and Dead
+  mutate(Severity=case_when(MSF_severity=="Moderate" & outcome_patcourse_status=="Sent back home"~ "Mild",
+                            MSF_severity=="Moderate" & outcome_patcourse_status=="Transferred"~ "Severe",
+                            MSF_severity=="Moderate" & outcome_patcourse_status=="Cured"~ "Severe",
+                            MSF_severity=="Moderate" & outcome_patcourse_status=="Dead"~ "Severe",
+                            MSF_severity=="Moderate" & outcome_patcourse_status=="Left against medical advice"~ "Severe",
+                            MSF_severity=="Moderate" & outcome_patcourse_status==""~ NA_character_,
+                            MSF_severity=="Moderate" & outcome_patcourse_status=="Other"~ "Mild",
+                            
+                            MSF_severity=="Critical" & outcome_patcourse_status=="Cured"~ "Severe",
+                            MSF_severity=="Critical" & outcome_patcourse_status=="Left against medical advice"~ "Severe",
+                            MSF_severity=="Critical" & outcome_patcourse_status=="Dead"~ "Dead",
+                            MSF_severity=="Critical" & outcome_patcourse_status=="Left against medical advice"~ "Severe",
+                            MSF_severity=="Critical"&  outcome_patcourse_status=="Other"~"Severe",
+                            
+                            MSF_severity=="Severe" & outcome_patcourse_status=="Cured"~ "Severe",
+                            MSF_severity=="Severe" & outcome_patcourse_status=="Died"~ "Dead",
+                            MSF_severity=="Severe" & outcome_patcourse_status=="Left against medical advice"~ "Severe",
+                            MSF_severity=="Severe" & outcome_patcourse_status=="Sent back home"~ "Severe",
+                            MSF_severity=="Severe" & outcome_patcourse_status=="Transferred"~ "Severe",
+                            
+                            MSF_severity=="Mild" & outcome_patcourse_status=="Left against medical advice"~ "Mild",
+                            MSF_severity=="Mild" & outcome_patcourse_status=="Other"~ "Mild",
+                            MSF_severity=="Mild" & outcome_patcourse_status=="Sent back home"~ "Mild",
+                            MSF_severity=="Mild" & outcome_patcourse_status=="Dead"~ "Dead",
+                            MSF_severity=="Mild" & outcome_patcourse_status=="Transfered"~ "Mild",
+                            MSF_severity=="Mild" & outcome_patcourse_status=="Others"~ "Mild",
+                            
+                            is.na(MSF_severity) & outcome_patcourse_status=="Cured"~ "Severe",
+                            is.na(MSF_severity) & outcome_patcourse_status=="Transferred"~ "Severe",
+                            is.na(MSF_severity) & outcome_patcourse_status=="Left against medical advice"~ "Severe",
+                            is.na(MSF_severity) & outcome_patcourse_status=="Transferred"~ "Severe",
+                            is.na(MSF_severity) & outcome_patcourse_status=="Dead"~ "Dead",
+                            is.na(MSF_severity) & outcome_patcourse_status=="Sent back home"~ "Mild")) %>% 
+mutate(Severity=factor(Severity,
+                       level=c("Mild",
+                               "Severe",
+                               "Dead",
+                               NA_character_))) %>% 
+
+mutate(
+  Occupation=case_when(
+    MSF_job=="Health workers: 1st line (patient contact)"      ~"1st line healthcare worker",
+    MSF_job=="Health workers: 2nd line (no patient contact)"    ~"2nd line healthcare worker",
+    MSF_job=="Laboratory technician"                            ~"2nd line healthcare worker",
+    MSF_job=="Student-University Institute"                     ~"Student/Teacher",
+    MSF_job=="Teacher"                                          ~"Student/Teacher",
+    MSF_job=="Prisoner - Detained"                              ~"Prisoner",
+    MSF_job=="Community Worker"                                 ~"Community Worker" ,
+    MSF_job=="Riposte Agent: community worker"                  ~"Community Worker or miscellaneous" ,
+   MSF_job=="Riposte Agent: other"                             ~"Community Worker  or miscellaneous" ,
+  MSF_job=="Traditional healer"                               ~"Community Worker  or miscellaneous" ,
+  MSF_job=="Social worker"                                    ~"Community Worker  or miscellaneous" ,
+  MSF_job=="Retired person"                                   ~"Retired" ,
+  MSF_job=="Religious"                                        ~"Community Worker or miscellaneous" ,
+  MSF_job=="Seniour executive"                                ~"Seniour official" ,
+    MSF_job=="State official"                                   ~"Seniour official" ,
+    MSF_job=="Employed (Other)"                                 ~"Employed other" ,
+  MSF_job=="Unemployed-no occupation"                         ~"Unemployed" ,
+   MSF_job=="Trader-Merchant and employees"                     ~"Trader-Merchant and employees",
+      is.na(MSF_job)~NA_character_,
+                           TRUE ~"Others")) %>%                          
+  mutate(Occupation=factor(Occupation,
+                           level= c("Others",
+                                  "Student/Teacher",
+                                  "1st line healthcare worker",
+                                  "2nd line healthcare worker",
+                                  "Prisoner",
+                                  "Community Worker  or miscellaneous" ,
+                                  "Trader-Merchant and employees",
+                                  "Seniour official" ,
+                                  "Employed other" ,
+                                  "Unemployed" ,
+                                  "Retired" ,
+                                  NA_character_
+  )))
+```
+
+
+
+```{r further cleaning of data to remove the NA values}
+explanatory_vars<-c("Age group","sex","Delay between onset and consultation","Length of stay in Hospital","Admitted","Continent","ICU admitted","Ventilation therapy","Oxygen therapy","Outcome","Fever", "Abdominal pain", "Aches",  "Ansomia","Breathlessness", "Chest pain",  "Chills",  "Cough",  "Cutaneous signs",   "Diarrhoea",  "Headache",    "Loss of taste",      "Nasal congestion",  "Runny nose",  "`Sore throat`","Vomiting",  "Tiredness", "Cardiac diseases", "Hypertension", "Liver diseases", "Renal diseases", "Diabetes", "Neurological diseases", "Malignancy", "Malaria", "HIV", "Other immuno deficiency diseases","Tuberculosis",
+                    "Other chronic lung diseases","Measles",
+
+          "Obesity","Smoking", "Malnutrition","Occupation", "Travel in the past 14 days",
+          "Visited health care facility", "Visited traditional healer","``Participated in mass gathering``",
+            "Setting of contact with covid-19 case", "Contact to case","merge_admit")
+
+##data_linelist_all_unknown <- data_linelist %>%  
+  ##mutate(across(                                      
+    ##.cols = all_of(c(explanatory_vars)),  ## for each column listed and "outcome"
+    ##.fns = ~case_when(                              
+     ## .%in% c("Yes","yes")   ~ "Yes",           ## recode male, yes and death to 1
+     ## .%in% c("No","no") ~ "No", # female, no and recover to 0
+      ##.%in% c("Unknown","unknown") ~ NA_character_,
+      ## TRUE ~ c(explanatory_vars))                          ## otherwise set to missing
+   ## )
+ ## )
+
+explanatory_vars_comorbid<-c("Cardiac diseases", "Hypertension", "Liver diseases", "Renal diseases", "Diabetes", "Neurological diseases", "Malignancy", "Malaria", "HIV", "Other immune deficiency diseases","Tuberculosis","Length of stay in Hospital", "Delay between onset and consultation","Other chronic lung diseases","Measles","Smoking", "Malnutrition")
+
+explanatory_vars_symptom<-c("Fever", "Abdominal pain", "Aches",  "Ansomia","Breathlessness", "Chest pain",  "Chills",  "Cough",   "Diarrhoea",  "Headache",    "Loss of taste",      "Nasal congestion",  "Runny nose",  "Sore throat","Vomiting",  "Tiredness","merge_admit", "Cutaneous signs","Obesity")
+
+
+
+## yy<-data_linelist %>% 
+## select(all_of(
+ ## .cols%in% c(explanatory_vars_symptom) %>% 
+        ## keep == "Yes"))
+
+```
+
+
+```{r clean data for regression}
+
+## Mutate the explanatory variables to change the Unknown values to NA's to fit in regression
+############################################################################################
+
+data_linelist_reg <- data_linelist %>%  
+  mutate(across(                                      
+    .cols = all_of(c(explanatory_vars_symptom)),  ## for each column listed and "outcome"
+    .fns = ~case_when(                             
+      .%in%c("Yes","yes") ~ "Yes",             
+      .%in%c("No","no")   ~ "No",              
+       TRUE ~ NA_character_)                  
+    )
+  )
+
+##########################################################################################
+data_linelist_reg <- data_linelist_reg %>% 
+mutate(across(
+              .cols = all_of(c(explanatory_vars_comorbid)),
+              .fns = ~case_when(
+                .%in% c("Yes","yes")   ~ "Yes",                   
+                 .%in% c("No","no") ~ "No",                        
+                 .%in%c("Negative","negative")~"Negative",
+                 .%in%c("Postive (on ARV)")~"Positive (on ARV)",
+                 .%in%c("Positive (no ARV)")~"Positive (no ARV)",
+                 .%in%c("Positive (unknown)")~"Positive (unknown)",
+                 .%in%c("Inconclusive")~"Inconclusive",
+                 .%in%c("Positive")~"Positive",
+                 .%in%c("Not done")~"Not done",
+                 .%in%c("Yes (currently on treatment)")~"Yes (currently on treatment)",
+                 .%in%c("Yes (currently no treatment)")~"Yes (currently no treatment)",
+                 .%in%c("Yes (unknown)")~"Yes (unknown)",
+                 .%in%c("Yes (current)")~"Yes (current)",
+                 .%in%c("Yes (former)")~"Yes (former)",
+                 .%in%c("<3 days")~"<3 days",
+                 .%in%c("3-6 days")~"3-6 days",
+                 .%in%c("7-13 days")~"7-13 days",
+                 .%in%c("14+ days")~"14+ days",
+                 TRUE ~ NA_character_))) 
+#data_linelist <- linelist %>% 
+  #mutate(across(.cols = c(Fever,Cough,Breathlessnes,..), .fns = as.Factor))
+
+#data_linelist <- linelist %>% 
+  #mutate(across(.cols = everything(), .fns = as.factor))
+                  
+data_linelist_reg <- data_linelist_reg %>% 
+mutate(`Age Category`=as.factor(`Age Category`),
+        Fever=as.factor(Fever),
+       Cough=as.factor(Cough),
+       Breathlessness=as.factor(Breathlessness),
+       `Sore throat`=as.factor(`Sore throat`),
+       Chills=as.factor(Chills),
+       Headache=as.factor(Headache),
+       `Abdominal pain`=as.factor(`Abdominal pain`), 
+       Aches=as.factor(Aches),
+       Tiredness=as.factor(Tiredness), 
+       `Nasal congestion`=as.factor(`Nasal congestion`),
+       `Runny nose`=as.factor(`Runny nose`),
+       `Diarrhoea`=as.factor(Diarrhoea),
+       Vomiting=as.factor(Vomiting),
+       `Loss of taste`=as.factor(`Loss of taste`),
+       Ansomia=as.factor(Ansomia),
+       `Chest pain`=as.factor(`Chest pain`),
+       `Cutaneous signs`=as.factor(`Cutaneous signs`),
+       `Cardiac diseases`=as.factor(`Cardiac diseases`),
+       Hypertension=as.factor(Hypertension),
+       `Liver diseases`=as.factor(`Liver diseases`),
+       `Renal diseases`=as.factor(`Renal diseases`),
+       Diabetes=as.factor(Diabetes),
+       `Neurological diseases`=as.factor(`Neurological diseases`),
+       Malignancy=as.factor(Malignancy),
+       Malaria=as.factor(Malaria),
+       HIV=as.factor(HIV),
+       `Other immune deficiency diseases`=as.factor(`Other immune deficiency diseases`),
+       Tuberculosis=as.factor(Tuberculosis),
+       `Other chronic lung diseases`=as.factor(`Other chronic lung diseases`),
+       Measles=as.factor(Measles),
+       Obesity=as.factor(Obesity),
+       Smoking=as.factor(Smoking),
+       Malnutrition=as.factor(Malnutrition),
+       Occupation=as.factor(Occupation),
+       `Delay between onset and consultation`=as.factor(`Delay between onset and consultation`),
+      `Length of stay in Hospital`=as.factor(`Length of stay in Hospital`),
+       merge_admit=as.factor(merge_admit),
+       report_test_reason=as.factor(report_test_reason),
+       report_test_reason_other=as.factor(report_test_reason_other),
+       Continent=as.factor(Continent))
+
+## After loading the MASS package "select" will be confused.  use "dplyr:: select()" instead to avoid the error message
+
+#data_linelist_reg<-data_linelist_reg %>% 
+  #dplyr::select(Soutcome,toutcome, Continent, sex,`Age group`,`Age china`, `Age 7gp`, `Age Category`, Continent,Country, Fever,Cough, Breathlessness, `Sore throat`, Chills,`Headache`,`Abdominal pain`, Aches, Tiredness, `Nasal congestion`,`Runny nose`,`Diarrhoea`,Vomiting,`Loss of taste`,  Ansomia,  `Chest pain`, `Cutaneous signs`, `Cardiac diseases`, Hypertension, `Liver diseases`, `Renal diseases`, Diabetes, `Neurological diseases`, Malignancy, Malaria, HIV, `Other immune deficiency diseases`, Tuberculosis,`Other chronic lung diseases`, Measles, Obesity, Smoking, Malnutrition,Occupation,`Delay between onset and consultation`,`Length of stay in Hospital`,merge_admit,ind_MSF_covid_status,report_test_reason,report_test_reason_other,MSF_covid_status)
+
+```
+
+# Sensitivty and specifcity test of predictor varaibales versus cases and not cases
+
+
+```{r tabulate the predictor variables and the laboratory outcome}
+data_linelist_reg<-data_linelist_reg %>% 
+  mutate(lab_result=case_when(ind_MSF_covid_status=='Confirmed' ~'Yes',
+                  ind_MSF_covid_status=='Not a case'~'No',
+                  TRUE~NA_character_)) 
+
+data_linelist_reg<-data_linelist_reg %>% 
+  mutate(lab_result=factor(lab_result,
+                           levels=c('No',
+                                    'Yes')))
+#summary(data_linelist_reg$lab_result)
+```
+
+# Sesnsitivity test of predictor variables 
+
+
+```{r create the dummies}
+data_linelist_reg %>% 
+  dplyr::select(lab_result,report_test_reason) %>% 
+  tbl_summary(by=lab_result) %>% 
+  add_overall(last=T) %>% 
+   add_n() %>% 
+  modify_caption("Cases with and without conditions")
+```
+
+Demographics, clinical and epidemiological characteristics of patients included in the COVID-19 case definition analysis (n, %) 
+
+```{r variables for sensitivity and specificity analysis}
+
+data_linelist_reg %>% 
+ dplyr::select(lab_result,sex,`Age 7gp`,
+         Fever,
+         Cough,
+         Breathlessness, 
+         `Sore throat`,
+         Chills,
+         `Headache`,
+         `Abdominal pain`,
+         Aches, 
+         Tiredness,
+         `Nasal congestion`,
+         `Runny nose`,
+         `Diarrhoea`,
+         Vomiting,
+         `Loss of taste`,
+         Ansomia,
+         `Chest pain`,
+         `Cutaneous signs`,
+         `Cardiac diseases`,
+         Hypertension,
+         `Liver diseases`, 
+         `Renal diseases`, Diabetes, `Neurological diseases`, Malignancy, Malaria, HIV, `Other immune deficiency diseases`, Tuberculosis,`Other chronic lung diseases`, Measles, Obesity, Smoking, Malnutrition,Occupation,`Delay between onset and consultation`,`Length of stay in Hospital`, report_test_reason) %>% 
+  tbl_summary(by=lab_result,
+              missing = 'no')
+
+```
+
+
+* ROC(Receiver operating characteristic) curve is drawn by taking False positive rate on X-axis and True positive rate on Y- axis.
+
+* ROC tells us, how many mistakes are we making to identify all the positives only using the signs and symptoms and other factors?
+
+
+```{r sensitivity specficty}
+# Summary statistics of data frame in R 
+ 
+install.packages("Hmisc")
+library(Hmisc)
+
+# create the TP/FP/TN/FN data frame for each variable of interest
+data_linelist_sen_spe<-data_linelist_reg %>% 
+  mutate(Fever_sen_spe=(case_when(MSF_symptom_fever=='Yes' & lab_result=="Case"~"TP",
+                                  MSF_symptom_fever=='Yes' & lab_result=="Not a case"~"FP",
+                                  MSF_symptom_fever=='No' & lab_result=="Case"~"FN",
+                                  MSF_symptom_fever=='No' & lab_result=="Not a case"~"TN",
+                                  TRUE~NA_character_)))
+
+
+
+```
+
+\newpage
+
+The AUC can be defined as “The probability that a randomly selected case will have a higher test result than a randomly selected control”. Let's use this definition to calculate and visualize the estimated AUC.
+
+
+```{r fit univariate model to determine the ROC,AUC}
+
+library(caret)
+library(pROC)
+library(ROCR)
+library(caTools)
+
+model<-glm(`Sore throat`~lab_result, data = data_linelist_reg, family = binomial) 
+#predicted_values<-ifelse(predict(model,type="response")>threshold,1,0)
+#actual_values<-model$y
+#conf_matrix<-table(predicted_values,actual_values)
+#conf_matrix
+#sensitivity(conf_matrix)
+#specificity(conf_matrix)
+#xtabs(~lab_result + Fever, data=data_linelist_reg)
+
+##--- --- --- ---  ---  ---  ---
+
+# predict the probabality 
+predicted_prob<-predict(model,type="response")
+# set roc curve
+roccurve <- roc(model$y, predicted_prob)
+# Plot the rpc curve
+plot(roccurve,auc.ploygon=T)
+# call the model and the predicted probability to get the area under the roc curve
+ #roc.default(response = prod_sales_Logit_model$y, predictor = predicted_prob)
+# area under the curve
+auc(roccurve)
+#summary(data_linelist_reg$var)
+ci.auc(roccurve)
+
+### Put all the variables together 
+
+```
+
+<!--------------------------------- Using epiR package(Demonstrate)--------------------------->
+
+\newpage
+
+```{r sensitivity specificty for each of the indicators}
+library(epiR)
+
+ntp_fever<-data_linelist %>% filter (MSF_symptom_fever=="Yes" & MSF_covid_status=="Confirmed")
+nfn_fever<-data_linelist %>% filter (MSF_symptom_fever=="No" & MSF_covid_status=="Confirmed")
+nfp_fever<-data_linelist %>% filter (MSF_symptom_fever=="Yes" & MSF_covid_status=="Not a case")
+ntn_fever<-data_linelist %>% filter (MSF_symptom_fever=="No" & MSF_covid_status=="Not a case")
+
+# Fever
+xtabs(~Fever+lab_result, data=data_linelist_reg)
+# create the (TP,FP, FN,TN)
+dat_Fever_labresult <- as.table(matrix(c(8192,5467,4404,4310), nrow = 2, byrow = TRUE))
+colnames(dat_Fever_labresult) <- c("Dis+","Dis-")
+rownames(dat_Fever_labresult) <- c("Test+","Test-")
+fever <- epi.tests(dat_Fever_labresult, conf.level = 0.95)
+print(fever); summary(fever)
+
+# Cough 
+ntp_cough<-data_linelist %>% filter (MSF_symptom_cough=="Yes" & MSF_covid_status=="Confirmed")
+nfn_cough<-data_linelist %>% filter (MSF_symptom_cough=="No" & MSF_covid_status=="Confirmed")
+nfp_cough<-data_linelist %>% filter (MSF_symptom_cough=="Yes" & MSF_covid_status=="Not a case")
+ntn_cough<-data_linelist %>% filter (MSF_symptom_cough=="No" & MSF_covid_status=="Not a case")
+
+
+xtabs(~Cough + lab_result, data=data_linelist_reg)
+# create the (TP,FP, FN,TN)
+dat_Cough_labresult <- as.table(matrix(c(8828,7026,4355,3612), nrow = 2, byrow = TRUE))
+colnames(dat_Cough_labresult) <- c("Dis+","Dis-")
+rownames(dat_Cough_labresult) <- c("Test+","Test-")
+cough <- epi.tests(dat_Cough_labresult, conf.level = 0.95)
+print(cough); summary(cough)
+
+# Breathlessness 
+
+ntp_breathlessness<-data_linelist %>% filter (MSF_symptom_breathlessness=="Yes" & MSF_covid_status=="Confirmed")
+nfn_breathlessness<-data_linelist %>% filter (MSF_symptom_breathlessness=="No" & MSF_covid_status=="Confirmed")
+nfp_breathlessness<-data_linelist %>% filter (MSF_symptom_breathlessness=="Yes" & MSF_covid_status=="Not a case")
+ntn_breathlessness<-data_linelist %>% filter (MSF_symptom_breathlessness=="No" & MSF_covid_status=="Not a case")
+
+xtabs(~Breathlessness + lab_result , data=data_linelist_reg)
+dat_Breathlessness_labresult <- as.table(matrix(c(5483,3011,7318,5612), nrow = 2, byrow = TRUE))
+colnames(dat_Breathlessness_labresult) <- c("Dis+","Dis-")
+rownames(dat_Breathlessness_labresult) <- c("Test+","Test-")
+breathlessness <- epi.tests(dat_Breathlessness_labresult, conf.level = 0.95)
+print(breathlessness); summary(breathlessness)
+
+# Sore throat
+
+xtabs(~`Sore throat` + lab_result , data=data_linelist_reg)
+dat_sorethroat_labresult <- as.table(matrix(c(1784,1670,4262,4849), nrow = 2, byrow = TRUE))
+colnames(dat_sorethroat_labresult) <- c("Dis+","Dis-")
+rownames(dat_sorethroat_labresult) <- c("Test+","Test-")
+sorethroat <- epi.tests(dat_sorethroat_labresult, conf.level = 0.95)
+print(sorethroat ); summary(sorethroat)
+
+# Tiredness
+
+xtabs(~Tiredness + lab_result, data=data_linelist_reg)
+dat_Tiredness_labresult <- as.table(matrix(c(2634,2904,2703,3856), nrow = 2, byrow = TRUE))
+colnames(dat_Tiredness_labresult) <- c("Dis+","Dis-")
+rownames(dat_Tiredness_labresult) <- c("Test+","Test-")
+tiredness <- epi.tests(dat_Tiredness_labresult, conf.level = 0.95)
+print(tiredness); summary(tiredness)
+
+```
+
+<!--- Using the epi-test function and looping the diseases to many of the variables 
+     easier way and non manual---------->
+     
+\newpage
+
+Using direct from the data frame is easy way. Just assign 1 and 0 for both labels and then or p and N
+
+```{r using the epi-test loop}
+# uisng the epi test we can calculate the sensitivity and specificity
+# mutate the values to 1 and 0
+
+datasenspe<-data_linelist_reg %>% 
+  dplyr::mutate(fever=case_when(MSF_symptom_fever=="Yes"~"P",
+                         MSF_symptom_fever=="No" ~ "N",
+                         TRUE~NA_character_)) %>% 
+  dplyr::mutate(disease=case_when(MSF_covid_status=="Confirmed"~"P",
+                           MSF_covid_status=="Not a case"~"N",
+                           TRUE~NA_character_)) %>% 
+  dplyr::mutate(fever=factor(fever,
+                    level=list("P","N"))) %>% 
+  
+  dplyr::mutate(disease=factor(disease,
+                       level =list("P","N"))) %>% 
+  # Cough
+  dplyr::mutate(cough=case_when(MSF_symptom_cough=="Yes"~"P",
+                         MSF_symptom_cough=="No" ~ "N",
+                         TRUE~NA_character_)) %>% 
+  # Breathlessness
+  dplyr::mutate(breathlessness=case_when(MSF_symptom_breathlessness=="Yes"~"P",
+                         MSF_symptom_breathlessness=="No" ~ "N",
+                         TRUE~NA_character_))
+```
+
+
+```{r out puts of the epitest}
+
+### Fever
+ctable<-xtabs(~relevel(as.factor(fever), "P") + relevel(as.factor(disease),"P"),datasenspe)
+#Create object "measures"
+fever<-epi.tests(ctable,conf.level=.95)
+#Results
+print(fever)
+summary(fever)
+
+### Cough
+ctable<-xtabs(~relevel(as.factor(cough), "P") + relevel(as.factor(disease),"P"),datasenspe)
+#Create object "measures"
+cough<-epi.tests(ctable,conf.level=.95)
+#Results
+print(cough)
+summary(cough)
+
+### Breathlessness
+ctable<-xtabs(~relevel(as.factor(breathlessness), "P") + relevel(as.factor(disease),"P"),datasenspe)
+#Create object "measures"
+breathless<-epi.tests(ctable,conf.level=.95)
+#Results
+print(breathless)
+summary(breathless)
+
+
+
+```
+
+<!---------------------diagt command in stata using the diagt package------------>
+
+```{r cond for stata,dont run}
+
+
+
+
+````
+
+
+
+
+
+
+
+
+
+
